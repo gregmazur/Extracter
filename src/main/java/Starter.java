@@ -1,13 +1,15 @@
-import com.google.gson.Gson;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 
@@ -15,54 +17,118 @@ public class Starter {
 
   public static void main(String... args) throws IOException {
 
-    if (args == null || args.length <=0){
-      System.out.println("Path to csv is absent");
-      System.exit(1);
-    }
+    System.out.println(new File("").getAbsolutePath());
+    String str;
+    File currentFolder = new File(new File("").getAbsolutePath());
+    File[] files = currentFolder.listFiles();
 
+    Map<String, Statistics> statisticMap = new HashMap<>();
 
-    String path = args[0];
+    for (File file : files) {
 
-    try (
-        BufferedReader br = new BufferedReader(new FileReader(path))
-    ) {
-      String line;
+      if (!file.getName().contains(".log"))
+        continue;
 
-        try (
-            BufferedWriter writer = Files.newBufferedWriter(Paths.get("extracted.csv"));
-            CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT);
-        ) {
-          while ((line = br.readLine()) != null) {
-            System.out.println("Reading line");
-            String[] csvRecord = line.split(";");
-          List<String> first9 = getFirst9(csvRecord);
+      System.out.println("Reading " + file.getName());
 
-          TestCaseRecord[] records = getParsed12thColumn(csvRecord[11]);
+      Map<Key, Long> requsts = new HashMap<>();
 
-          for (TestCaseRecord record : records) {
-            List<String> words = new ArrayList<>(15);
-            words.addAll(first9);
-            words.addAll(Arrays.asList(record.getArray()));
-            csvPrinter.printRecord(words);
+      try (
+          BufferedReader br = new BufferedReader(new FileReader(file))
+      ) {
+        String line;
+
+        while ((line = br.readLine()) != null) {
+          if (line.contains("DefaultHttpClientConnectionOperator : Connecting to")) {
+            String ip = line.substring(line.indexOf("/")+1, line.lastIndexOf(":"));
+            String[] words = line.split(" ");
+            long time = getTime(words);
+            String threadName = getThreadName(words);
+
+            requsts.put(new Key(threadName, ip), time);
+          } else if (line
+              .contains("DefaultHttpClientConnectionOperator : Connection established")) {
+            String ip = line.substring(line.indexOf(">")+1, line.lastIndexOf(":"));
+            String[] words = line.split(" ");
+            long time = getTime(words);
+            String threadName = getThreadName(words);
+
+            Long previousTime = requsts.remove(new Key(threadName, ip));
+            if (previousTime != null) {
+              final long finalTime = time - previousTime;
+              Statistics statistics = statisticMap.computeIfAbsent(ip, s -> new Statistics());
+              statistics.update(finalTime);
+            }
           }
-          csvPrinter.flush();
         }
       }
     }
-  }
 
-  private static List<String> getFirst9(String[] csvRecord) {
-    List<String> result = new ArrayList<>();
-    for (int i = 0; i < 9; i++) {
-      result.add(csvRecord[i]);
+    try (
+        BufferedWriter writer = Files.newBufferedWriter(Paths.get("result.csv"));
+        CSVPrinter csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT);
+    ) {
+      System.out.println("Printing statistics");
+      csvPrinter.printRecord("ip", "max Connection time(msec)", "average Connection time(msec)",
+          "max Connection time(sec)", "average Connection time(sec)");
+
+      for (Map.Entry<String, Statistics> entry : statisticMap.entrySet()){
+        csvPrinter.printRecord(entry.getKey(), entry.getValue().max()/1000000, entry.getValue().avrg()/1000000
+            , entry.getValue().max()/1000000000, entry.getValue().avrg()/1000000000);
+      }
+      csvPrinter.flush();
     }
-    return result;
+
+
   }
 
-  private static TestCaseRecord[] getParsed12thColumn(String column) {
-    column = "{\"records\":" + column + "}";
-    Wrapper wrapper = new Gson().fromJson(column, Wrapper.class);
-    return wrapper.records;
+
+  private static long getTime(String[] words) {
+    for (String word : words) {
+      if (word.matches("\\d{1,2}:\\d{1,2}:\\d{1,2}.\\d{1,3}")) {
+        return LocalTime.parse(word, DateTimeFormatter.ofPattern("HH:mm:ss.nnn")).toNanoOfDay();
+      }
+    }
+    throw new IllegalStateException();
+  }
+
+  private static String getThreadName(String[] words) {
+    for (String word : words) {
+      if (word.matches("\\[.{1,}\\]")) {
+        return word;
+      }
+    }
+    throw new IllegalStateException();
+  }
+
+
+  private static class Key {
+
+    String threadName;
+    String ip;
+
+    public Key(String threadName, String ip) {
+      this.threadName = threadName;
+      this.ip = ip;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (o == null || getClass() != o.getClass()) {
+        return false;
+      }
+      Key key = (Key) o;
+      return Objects.equals(threadName, key.threadName) &&
+          Objects.equals(ip, key.ip);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(threadName, ip);
+    }
   }
 
 
