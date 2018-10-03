@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 public class Statistics {
 
@@ -11,12 +12,7 @@ public class Statistics {
   }
 
   public long max() {
-    long max = 0;
-    for (Long i : times) {
-      if (i > 0)
-        max = i;
-    }
-    return max;
+    return times.stream().mapToLong(Long::longValue).max().orElseThrow(NoSuchElementException::new);
   }
 
   public long avrg() {
