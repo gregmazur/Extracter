@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalTime;
@@ -12,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Scanner;
 import java.util.zip.GZIPInputStream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
@@ -56,35 +58,28 @@ public class Starter {
         continue;
 
       processFile(file);
-
     }
   }
 
-  static void processFile(File file) throws IOException {
-    gunzipIt(file);
-    readTmpFile();
-  }
 
+  public static void processFile(File file) throws IOException {
 
-  public static void readTmpFile() throws IOException {
-
-    Map<Key, Long> requsts = new HashMap<>();
-
-    File file = new File("tmp.log");
+    Map<Key, Long> requests = new HashMap<>();
 
     try (
-        BufferedReader br = new BufferedReader(new FileReader(file))
+        InputStream inputStream = new GZIPInputStream(new FileInputStream(file));
+        Scanner scanner = new Scanner(inputStream);
     ) {
-      String line;
-      System.out.println("Reading " + file.getName());
-      while ((line = br.readLine()) != null) {
+      System.out.println(">>Reading " + file.getName());
+      while (scanner.hasNextLine()) {
+        String line = scanner.nextLine();
         if (line.contains("DefaultHttpClientConnectionOperator : Connecting to")) {
           String ip = line.substring(line.indexOf("/")+1, line.lastIndexOf(":"));
           String[] words = line.split(" ");
           long time = getTime(words);
           String threadName = getThreadName(words);
 
-          requsts.put(new Key(threadName, ip), time);
+          requests.put(new Key(threadName, ip), time);
         } else if (line
             .contains("DefaultHttpClientConnectionOperator : Connection established")) {
           String ip = line.substring(line.indexOf(">")+1, line.lastIndexOf(":"));
@@ -92,7 +87,7 @@ public class Starter {
           long time = getTime(words);
           String threadName = getThreadName(words);
 
-          Long previousTime = requsts.remove(new Key(threadName, ip));
+          Long previousTime = requests.remove(new Key(threadName, ip));
           if (previousTime != null) {
             final long finalTime = time - previousTime;
             Statistics statistics = statisticMap.computeIfAbsent(ip, s -> new Statistics());
@@ -103,36 +98,36 @@ public class Starter {
     }
   }
 
-  public static void gunzipIt(File zippedFile){
-
-    byte[] buffer = new byte[1024];
-
-    try{
-      System.out.println("unziping " + zippedFile.getName());
-      GZIPInputStream gzis =
-          new GZIPInputStream(new FileInputStream(zippedFile));
-
-      File oldTmpFile = new File("tmp.log");
-      if (oldTmpFile.exists())
-        oldTmpFile.delete();
-
-      FileOutputStream out =
-          new FileOutputStream("tmp.log");
-
-      int len;
-      while ((len = gzis.read(buffer)) > 0) {
-        out.write(buffer, 0, len);
-      }
-
-      gzis.close();
-      out.close();
-
-      System.out.println("Done");
-
-    }catch(IOException ex){
-      ex.printStackTrace();
-    }
-  }
+//  public static void gunzipIt(File zippedFile){
+//
+//    byte[] buffer = new byte[1024];
+//
+//    try{
+//      System.out.println(">unziping " + zippedFile.getName());
+//      GZIPInputStream gzis =
+//          new GZIPInputStream(new FileInputStream(zippedFile));
+//
+//      File oldTmpFile = new File("tmp.log");
+//      if (oldTmpFile.exists())
+//        oldTmpFile.delete();
+//
+//      FileOutputStream out =
+//          new FileOutputStream("tmp.log");
+//
+//      int len;
+//      while ((len = gzis.read(buffer)) > 0) {
+//        out.write(buffer, 0, len);
+//      }
+//
+//      gzis.close();
+//      out.close();
+//
+//      System.out.println(">Unziped");
+//
+//    }catch(IOException ex){
+//      ex.printStackTrace();
+//    }
+//  }
 
 
   private static long getTime(String[] words) {
